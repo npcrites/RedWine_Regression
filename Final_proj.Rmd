@@ -1,0 +1,125 @@
+```{r}
+lmod1 <- lm(quality ~ ., winequality_red) # create lmod with all predictors
+plot(quality ~ ., winequality_red)
+summary(lmod1)
+hist(winequality_red$quality)
+```
+```{r}
+library(MASS)
+boxcox(lmod1) # box cox with all predictors to check is transformation is appropriate
+boxcox(lmod2)
+```
+```{r}
+colnames(winequality_red) <- c("fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates", "alcohol", "quality")
+# change column names to usable names with
+```
+
+
+```{r}
+plot(lmod1)
+summary(lmod1)
+```
+```{r}
+shapiro.test(lmod1$residuals)
+```
+
+Normality assumption is satisified by looking at a histogram of the response and the normal Q-Q plot. A Shapiro-Wilks test is not suitable for such a large data set.
+
+Equal-Variance assumption is satisfied after looking at fitted values vs residuals plot. The residuals are centered at zero with equal distribution above and below zero.
+
+Independence is more of a concern with time-series data. Looking at a plot of the y values versus the residuals:
+
+```{r}
+plot(winequality_red$quality, lmod1$residuals)
+```
+
+We can see that error is not significantly higher for any particular response value.
+
+We also see in our residuals vs. fitted plot that the relationship between fitted values and residuals are linear -- there is no curvature to these lines thus we ought to not worry about non-linear combinations of predictors in our model.
+
+Let's perform a step function to try to reduce the size of our model:
+
+```{r}
+step(lmod1)
+```
+
+We have our new and reduced model, let's perform some diagnostics on this model: 
+
+```{r}
+lmod2 <- lm(formula = quality ~ `volatile acidity` + chlorides + `free sulfur dioxide` + 
+    `total sulfur dioxide` + pH + sulphates + alcohol, data = winequality_red)
+summary(lmod2)
+plot(lmod2)
+```
+
+Finally, let's examine the shaprio-wilk test of our new model `lmod2`:
+
+```{r}
+shapiro.test(lmod2$residuals)
+```
+
+Because we have more significant predictors but little sacrifice in fit quality, this analysis will continue using the reduced stepwise regression model `lmod2`. 
+
+Examining the leverage points, outliers, and influential points of the new model:
+
+```{r}
+#leverage points in lmod2
+levMat <- data.matrix(hatvalues(lmod2) > 2 * mean(hatvalues(lmod2)))
+which(levMat == TRUE)
+```
+
+The observations have a significant amount of leverage.
+
+```{r}
+#outliers in lmod2
+outMat <- rstandard(lmod2)[abs(rstandard(lmod2)) > 2]
+outMat
+
+
+#influential points in lmod2
+cooksMat <- data.matrix(cooks.distance(lmod2) > 4/length(cooks.distance(lmod2)))
+which(cooksMat == TRUE)
+```
+
+```{r}
+require(faraway)
+#computing conditional numbers lmod2
+x <- model.matrix(lmod2)[,-1]
+e <- eigen(t(x)%*% x)
+sqrt(e$val[1]/e$val)
+
+#VIFs for lmod2
+vif(lmod2)
+```
+
+```{r}
+plot(winequality_red$`free sulfur dioxide`, winequality_red$`total sulfur dioxide`)
+plot(winequality_red$`fixed acidity`, winequality_red$`volatile acidity`)
+```
+
+
+
+* conditional numbers greater than 30 are too high
+* vifs greater than ~5 are too high and indicate collinearity / model instability
+
+
+**Principal Component Analysis**
+
+```{r}
+pca <- prcomp(winequality_red[1:1279,])
+round(pca$sdev,3)
+summary(pca)
+```
+
+```{r}
+model3 <- lm(quality ~ pca$x[,1:5], winequality_red[1:1279,])
+summary(model3)
+```
+
+**ANOVA**
+
+```{r}
+lmod3 <- lm(quality ~ volatile_acidity + chlorides + free_sulfur_dioxide + total_sulfur_dioxide + pH + sulphates + alcohol, data = winequality_red)
+anova(lmod3)
+```
+Here we have high F values and low pvalues for each predictor except for the pH predictor, so we know that y can be explained by variance in the predictors, except for the pH predictor.

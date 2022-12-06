@@ -1,0 +1,290 @@
+---
+title: "Redwine_final"
+author: "Nick Crites"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+**Initial Model**
+
+```{r}
+colnames(winequality_red) <- c("fixed_acidity", "volatile_acidity", "citric_acid", "residual_sugar", "chlorides", "free_sulfur_dioxide", "total_sulfur_dioxide", "density", "pH", "sulphates", "alcohol", "quality")
+# change column names to usable names with _
+```
+
+
+```{r}
+lmod1 <- lm(quality ~ ., winequality_red) # create lmod with all predictors
+plot(quality ~ ., winequality_red)
+summary(lmod1)
+hist(winequality_red$quality)
+```
+
+**BoxCox Transformation**
+
+```{r}
+library(MASS)
+boxcox(lmod1) # box cox with all predictors to check is transformation is appropriate
+```
+Since the Lambda value of the Box Cox Transformation is near 1, and 1 is within the 95% confidence interval, there is no need to transform the data to get a better linear fit. This applies for all reduced models based on `lmod1`.
+
+```{r}
+plot(lmod1)
+summary(lmod1)
+```
+Summary shows some initial significance in volatile acidity, chlorides, total sulfur dioxide, alcohol, and sulphates.
+Since quality is measured in whole numbers, our graph will always go in straight lines.
+We make several assumptions in fitting a model. The normality assumption is addressed below:
+
+```{r}
+shapiro.test(lmod1$residuals)
+```
+
+Normality assumption is satisified by looking at a histogram of the response and the normal Q-Q plot. A Shapiro-Wilks test is not suitable for such a large data set.
+
+Equal-Variance assumption is satisfied after looking at fitted values vs residuals plot. The residuals are centered at zero with equal distribution above and below zero.
+
+Independence is more of a concern with time-series data. Looking at a plot of the y values versus the residuals:
+
+```{r}
+plot(winequality_red$quality, lmod1$residuals)
+```
+
+We can see that error is not significantly higher for any particular response value.
+
+We also see in our residuals vs. fitted plot that the relationship between fitted values and residuals are linear -- there is no curvature to these lines thus we ought to not worry about non-linear combinations of predictors in our model.
+
+Let's perform a step function to try to reduce the size of our model:
+
+```{r}
+step(lmod1)
+```
+
+We have our new and reduced model, let's perform some diagnostics on this model:
+
+```{r}
+lmod2 <- lm(formula = quality ~ volatile_acidity + chlorides + free_sulfur_dioxide +
+    total_sulfur_dioxide + pH + sulphates + alcohol, data = winequality_red)
+summary(lmod2)
+plot(lmod2)
+```
+
+Finally, let's examine the shaprio-wilk test of our new model `lmod2`:
+
+```{r}
+shapiro.test(lmod2$residuals)
+```
+
+Because we have more significant predictors but little sacrifice in fit quality, this analysis will continue using the reduced stepwise regression model `lmod2`.
+
+Let's look at a prediction with a 95% confidence interval for our reduced step-wise model for a wine with average predictor values:
+
+```{r}
+x2 <- model.matrix(lmod2)
+x20 <- apply(x2,2,mean)
+predict(lmod2,new=data.frame(t(x20)),interval="confidence",level = .95)
+
+new2 <- data.frame(volatile_acidity = mean(winequality_red$volatile_acidity), chlorides=mean(winequality_red$chlorides), free_sulfur_dioxide = mean(winequality_red$free_sulfur_dioxide), total_sulfur_dioxide = mean(winequality_red$total_sulfur_dioxide), pH = mean(winequality_red$pH), sulphates = mean(winequality_red$sulphates), alcohol=mean(winequality_red$alcohol))
+predict(lmod2,new2,interval="prediction")
+```
+
+As we see from the above confidence interval, our bounds are quite tight as the lwr and upr range are only seperated by .06. Our model prediction is quite robust. The confidence interval gives an idea of what the mean quality could be at the mean values for the predictors.
+
+The prediction interval us also quite tight and tells us what values we could reasonably expect for mean predictor values.  
+
+Here I will withold one observation and fit our model to same way, then compute a prediction interval for the observation to see if the interval contains the true response quantity for "quality".
+
+```{r}
+withheld_mod <- lm(quality ~ ., data = winequality_red[-c(1)])
+step_withheld <- step(withheld_mod)
+first_obs <- data.frame(free_sulfur_dioxide=11, pH=3.51, total_sulfur_dioxide=34, chlorides=0.076, sulphates=0.56, volatile_acidity=0.700, alcohol=9.4)
+predict(step_withheld,first_obs,interval="prediction")
+```
+
+We can see that the actual observation for quality was 5, so it is contained within the prediction interval.
+
+
+Examining the leverage points, outliers, and influential points of the new model:
+
+```{r}
+#leverage points in lmod2
+levMat <- data.matrix(hatvalues(lmod2) > 2 * mean(hatvalues(lmod2)))
+which(levMat == TRUE)
+```
+
+The observations have a significant amount of leverage.
+
+```{r}
+#outliers in lmod2
+outMat <- rstandard(lmod2)[abs(rstandard(lmod2)) > 2]
+outMat
+```
+
+These points were influential in our model:
+
+```{r}
+#influential points in lmod2
+cooksMat <- data.matrix(cooks.distance(lmod2) > 4/length(cooks.distance(lmod2)))
+which(cooksMat == TRUE)
+```
+
+Because we have lots of data points (~2000), we can omit the above influential points:
+
+```{r}
+winequality_red1 <- winequality_red[-c(14,44,46,80,87,89,92,93,95,132,133,135,143,145,152,162,170, 199, 200,231, 235,240,282, 292, 354, 391, 410, 422, 426,  441,  443,  452,  456,  460,  482,  496,  499, 518,  567,  568,  585,  589,  634,  639,  648,  653,  673,  691, 701,  724,  725,  755,  777,  778,  814,  829,  833,  834,  873,  900,  938, 1062, 1076, 1080, 1082, 1091, 1112, 1121, 1125, 1177, 1234, 1236, 1240, 1262, 1270, 1277, 1288, 1300, 1320, 1375, 1404, 1430, 1435, 1436, 1468, 1470, 1479, 1481, 1485, 1506) ,]
+```
+
+Fitting our new model with the reduced dataset:
+
+```{r}
+lmod3 <- lm(formula = quality ~ volatile_acidity + chlorides + free_sulfur_dioxide + total_sulfur_dioxide + pH + sulphates + alcohol, data = winequality_red1)
+summary(lmod3)
+```
+
+Our fit has improved by removing the influential points!
+
+Next we will check for collinearity by computing condition numbers and variance inflation factors:
+
+```{r}
+require(faraway)
+#computing conditional numbers lmod2
+x <- model.matrix(lmod3)[,-1]
+e <- eigen(t(x)%*% x)
+sqrt(e$val[1]/e$val)
+
+#VIFs for lmod2
+vif(lmod3)
+```
+
+In this case, we defer to the VIFs for measure of collinearity as our p-values in our model are extremely significant. Because condition numbers can be imagined as ratios between p-values, even a significant p-value will produce a high condition number when compared to extremely significant p-values. This is why we defer to VIFs.
+
+```{r}
+plot(winequality_red1$free_sulfur_dioxide, winequality_red1$total_sulfur_dioxide)
+plot(winequality_red1$fixed_acidity, winequality_red1$volatile_acidity)
+```
+
+
+* conditional numbers greater than 30 are too high
+* vifs greater than ~5 are too high and indicate collinearity / model instability
+
+
+**Principal Component Analysis**
+
+```{r}
+pca <- prcomp(winequality_red1[100:1450,])
+round(pca$sdev,3)
+summary(pca)
+```
+
+```{r}
+model3 <- lm(quality ~ pca$x[,1:5], winequality_red1[100:1450,])
+summary(model3)
+```
+
+Above is a model fit using principal component analysis. A computation of the eignvalues for linear combinations of the X values helps us to use linear combinations of the predictors that explain most of the variation in our data. We selected for components with eigenvalues greater than 1. This left us with 5 predictors and yielded a model with a much higher R-squared than we have been able to get from previous models.
+
+
+
+**ANOVA**
+
+```{r}
+anova(lmod3)
+```
+
+Here we have high F values and low pvalues for each predictor except for the pH predictor, so we know that variance in y can be explained by variance in the predictors, except for the pH predictor.
+
+**Other Models**
+
+```{r}
+# LAD
+require(foreign)
+require(quantreg)
+require(MASS)
+ladMod <- rq(quality ~ volatile_acidity + chlorides + free_sulfur_dioxide + total_sulfur_dioxide + pH + sulphates + alcohol, data = winequality_red1[100:1450,])
+summary(ladMod)
+
+#Huber
+require(MASS)
+hubMod <- rlm(quality ~ volatile_acidity + chlorides + free_sulfur_dioxide + total_sulfur_dioxide + pH + sulphates + alcohol, data = winequality_red1[100:1450,])
+summary(hubMod)
+
+# LTS
+set.seed(123)
+modLts<- ltsreg(quality ~ volatile_acidity + chlorides + free_sulfur_dioxide + total_sulfur_dioxide + pH + sulphates + alcohol, data = winequality_red1[100:1450,])
+coef(modLts)
+summary(modLts)
+
+# PLS
+library(pls)
+modPLS <- plsr(quality ~ ., data = winequality_red1[100:1599,], validation = "CV")
+cv <- RMSEP(modPLS)
+best.dims <- which.min(cv$val[estimate = "adjCV", , ]) - 1
+pls.model <- plsr(quality ~ ., data = winequality_red1, ncomp = best.dims)
+summary(pls.model)
+```
+
+Above are summaries for 4 additional model fits:
+Fit using Least Adsolute Deviations
+Fit using the Huber Method
+Fit using Least Trimmed Squares
+Fit using Kernel Partial Least Squares.
+
+**Predictions with Each Model**
+```{r}
+require(Metrics)
+ypred <- predict(ladMod,ncomp=8)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+```
+```{r}
+ypred <- predict(hubMod,ncomp=8)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+```
+
+```{r}
+ypred <- predict(modLts,ncomp=8)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+```
+
+```{r}
+ypred <- predict(pls.model,ncomp=8)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+
+ypred <- predict(pls.model,ncomp=5)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+```
+```{r}
+ypred <- predict(model3,ncomp=8)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+```
+
+```{r}  
+limited_bigmod <- lm(quality ~ ., winequality_red[100:1599,])
+step_limited <- step(limited_bigmod)
+ypred <- predict(step_limited,ncomp=8)
+rmse(ypred[1:99],winequality_red$quality[1:99])
+```
+
+```{r}
+first_obs <- data.frame(free_sulfur_dioxide=11, pH=3.51, total_sulfur_dioxide=34, chlorides=0.076, sulphates=0.56, volatile_acidity=0.700, alcohol=9.4)
+first_obs2 <- data.frame(fixed_acidity = 7.4, free_sulfur_dioxide=11, citric_acid = 1, residual_sugar = 3.4, pH=3.51, total_sulfur_dioxide=34, density = 0.9996,  chlorides=0.076, sulphates=0.56, volatile_acidity=0.700, alcohol=9.4)
+predict(ladMod, first_obs, interval= "confidence")
+```
+
+```{r}
+predict(hubMod,first_obs,interval="prediction")
+```
+
+
+```{r}
+predict(modLts,first_obs,interval="prediction")
+```
+
+
+```{r}
+predict(pls.model,first_obs2,interval="prediction")
+```
+
+
+With our data, we were able to generate a linear model using all of the predictors. We then checked assumptions of normality and linearity, and checked to verify that a linear model was appropriate. In this stage, we realized that our R^2 coefficient was very low, and we hypothesize that this is due to the nature of the response variable, quality. While the respose is numeric, it is discrete. There will always be a high squared error since our predictions are continuous. We proceeded with
+A stepwise regression model to reduce the number of predictors our model and also decrease the likelihood of collinearity and overfitting due to too many predictors. After selecting the step-wise regression model, we performed diagnositcs, checked our initial assumptions (all of which were affirmed), checked for leverage points, ourliers, influential points, checked for collinearity, and fit different least-square models to the data.
